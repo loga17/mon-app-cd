@@ -1,0 +1,155 @@
+# ============================================
+# PIPELINE DE DÉPLOIEMENT CONTINU (CD)
+# ============================================
+
+name: 🚀 Pipeline CD Complet
+
+# DÉCLENCHEURS : Quand est-ce que ce pipeline s'exécute ?
+on:
+  push:
+    branches: [ main ]        # Quand on pousse sur main
+  pull_request:
+    branches: [ main ]        # Quand on crée une PR vers main
+
+# ============================================
+# JOB 1 : TESTS
+# ============================================
+jobs:
+  test:
+    name: 🧪 Tests
+    runs-on: ubuntu-latest    # L'ordinateur qui exécute
+    
+    steps:
+      # Étape 1 : Récupérer le code
+      - name: 📥 Récupérer le code
+        uses: actions/checkout@v4
+        # C'est comme : Aller chercher ton projet sur GitHub
+      
+      # Étape 2 : Installer Node.js
+      - name: 🔧 Installer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'         # Pour aller plus vite
+        # C'est comme : Installer le moteur JavaScript
+      
+      # Étape 3 : Installer les dépendances
+      - name: 📦 Installer les dépendances
+        run: npm ci            # Version plus stricte de npm install
+        # C'est comme : Installer les outils nécessaires
+      
+      # Étape 4 : Lancer les tests
+      - name: 🧪 Lancer les tests
+        run: npm test
+        # C'est comme : Vérifier que tout marche
+      
+      # Étape 5 : Sauvegarder les résultats des tests
+      - name: 📊 Sauvegarder les résultats
+        if: always()           # Même si les tests échouent
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.txt
+          retention-days: 7    # Garder 7 jours
+        # C'est comme : Mettre la copie dans une boîte
+
+  # ============================================
+  # JOB 2 : CONSTRUCTION DOCKER
+  # ============================================
+  build-and-push:
+    name: 🏗️ Build & Push Docker
+    needs: test                 # Attend que les tests réussissent
+    runs-on: ubuntu-latest
+    # Ne s'exécute que sur main, pas sur les PR
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      # Étape 1 : Récupérer le code
+      - name: 📥 Récupérer le code
+        uses: actions/checkout@v4
+      
+      # Étape 2 : Préparer Docker Buildx
+      - name: 🔧 Configurer Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        # Buildx permet de construire des images plus efficacement
+      
+      # Étape 3 : Se connecter à Docker Hub
+      - name: 🔑 Connexion à Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+        # C'est comme : Montrer ton badge pour entrer dans Docker Hub
+      
+      # Étape 4 : Extraire les métadonnées (tags, labels)
+      - name: 📋 Extraire les métadonnées
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/mon-app-cd
+          tags: |
+            type=raw,value=latest
+            type=sha,format=short
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+      
+      # Étape 5 : Construire et pousser l'image Docker
+      - name: 🏗️ Construire et pousser l'image
+        uses: docker/build-push-action@v5
+        with:
+          context: .            # Dossier courant
+          push: true            # Pousser sur Docker Hub
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha   # Cache GitHub Actions
+          cache-to: type=gha,mode=max
+        # C'est comme : Cuisiner le plat et le mettre en vitrine
+
+  # ============================================
+  # JOB 3 : DÉPLOIEMENT (optionnel - si tu as un serveur)
+  # ============================================
+  deploy:
+    name: 🚀 Déploiement
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      # Étape 1 : Afficher un message (simulation)
+      - name: 📢 Simuler le déploiement
+        run: |
+          echo "🎉 L'image Docker est prête !"
+          echo "📦 Image: ${{ secrets.DOCKER_USERNAME }}/mon-app-cd:latest"
+          echo ""
+          echo "Pour déployer manuellement sur ton serveur :"
+          echo "1️⃣  ssh user@ton-serveur"
+          echo "2️⃣  docker pull ${{ secrets.DOCKER_USERNAME }}/mon-app-cd:latest"
+          echo "3️⃣  docker run -d -p 3000:3000 ${{ secrets.DOCKER_USERNAME }}/mon-app-cd:latest"
+          echo ""
+          echo "🔍 Pour voir ton app : http://ton-serveur:3000"
+      
+      # Étape 2 : Optionnel - Déploiement réel (si tu as configuré les secrets SSH)
+      # Décommente si tu as un serveur et les secrets SSH
+      # - name: 🚚 Déployer sur le serveur
+      #   uses: appleboy/ssh-action@v1.0.0
+      #   with:
+      #     host: ${{ secrets.SSH_HOST }}
+      #     username: ${{ secrets.SSH_USER }}
+      #     key: ${{ secrets.SSH_PRIVATE_KEY }}
+      #     script: |
+      #       docker pull ${{ secrets.DOCKER_USERNAME }}/mon-app-cd:latest
+      #       docker stop mon-app-cd || true
+      #       docker rm mon-app-cd || true
+      #       docker run -d \
+      #         --name mon-app-cd \
+      #         -p 3000:3000 \
+      #         --restart unless-stopped \
+      #         ${{ secrets.DOCKER_USERNAME }}/mon-app-cd:latest
+      #       docker image prune -f
+      
+      # Étape 3 : Vérification (simulée)
+      - name: 🔍 Vérification
+        run: |
+          echo "✅ Pipeline terminé avec succès !"
+          echo "🎯 L'application est prête à être utilisée !"
